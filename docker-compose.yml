@@ -1,0 +1,134 @@
+services:
+  tradingagents:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tradingagents:latest
+    container_name: tradingagents
+    environment:
+      # Required API Keys (set these in .env file)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - FINNHUB_API_KEY=${FINNHUB_API_KEY}
+      
+      # Optional Configuration
+      - TRADINGAGENTS_RESULTS_DIR=/app/results
+      - REDIS_URL=redis://redis:6379
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    
+    volumes:
+      # Mount results directory to persist analysis results
+      - ./results:/app/results
+      # Mount data cache to persist cached data
+      - ./data_cache:/app/tradingagents/dataflows/data_cache
+      # Optional: Mount custom config
+      - ./config:/app/config:ro
+    
+    # ports:
+      # - "8000:8000"  # Port used by webui service
+    
+    depends_on:
+      - redis
+    
+    # Interactive terminal for CLI
+    stdin_open: true
+    tty: true
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import tradingagents; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    
+    # Default command (can be overridden)
+    command: ["cli"]
+
+  redis:
+    image: redis:7-alpine
+    container_name: tradingagents-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Optional: Chainlit WebUI
+  webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tradingagents:latest
+    container_name: tradingagents-webui
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - FINNHUB_API_KEY=${FINNHUB_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - TRADINGAGENTS_RESULTS_DIR=/app/results
+      - REDIS_URL=redis://redis:6379
+      - PYTHONPATH=/app
+    volumes:
+      - ./results:/app/results
+      - ./data_cache:/app/tradingagents/dataflows/data_cache
+    # 原配置
+    
+    3ports:
+      - "8000:8000"
+    
+    # 新配置  
+    ports:
+      - "8082:8082"
+    depends_on:
+      - redis
+    command: ["chainlit", "run", "app.py", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+    profiles:
+      - webui
+
+  # Optional: Jupyter notebook for development
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tradingagents:latest
+    container_name: tradingagents-jupyter
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - FINNHUB_API_KEY=${FINNHUB_API_KEY}
+      - TRADINGAGENTS_RESULTS_DIR=/app/results
+      - REDIS_URL=redis://redis:6379
+      - PYTHONPATH=/app
+    volumes:
+      - ./results:/app/results
+      - ./data_cache:/app/tradingagents/dataflows/data_cache
+      - ./notebooks:/app/notebooks
+    ports:
+      - "8888:8888"
+    depends_on:
+      - redis
+    command: ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", "--NotebookApp.token=''", "--NotebookApp.password=''"]
+    restart: unless-stopped
+    profiles:
+      - jupyter
+
+volumes:
+  redis_data:
+
+networks:
+  default:
+    name: tradingagents-network

@@ -35,7 +35,9 @@ Here are your past reflections on mistakes:
 
 Here is the debate:
 Debate History:
-{history}"""
+{history}
+
+IMPORTANT: Please provide your entire research management decision and analysis in Chinese (中文). All investment recommendations, rationale explanations, strategic actions, and debate summaries should be written in Chinese. Use professional financial and investment management terminology in Chinese."""
         response = llm.invoke(prompt)
 
         new_investment_debate_state = {

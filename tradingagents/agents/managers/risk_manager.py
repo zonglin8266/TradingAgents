@@ -41,7 +41,9 @@ Deliverables:
 
 ---
 
-Focus on actionable insights and continuous improvement. Build on past lessons, critically evaluate all perspectives, and ensure each decision advances better outcomes."""
+Focus on actionable insights and continuous improvement. Build on past lessons, critically evaluate all perspectives, and ensure each decision advances better outcomes.
+
+IMPORTANT: Please provide your entire risk management analysis and decision in Chinese (中文). All risk evaluation, investment recommendation adjustments, strategic refinements, and final decisions should be written in Chinese. Use professional risk management and financial terminology in Chinese."""
 
         response = llm.invoke(prompt)
 

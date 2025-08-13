@@ -8,7 +8,6 @@ from langgraph.prebuilt import ToolNode
 from tradingagents.agents import *
 from tradingagents.agents.utils.agent_states import AgentState
 from tradingagents.agents.utils.agent_utils import Toolkit
-
 from .conditional_logic import ConditionalLogic
 
 
@@ -111,13 +110,7 @@ class GraphSetup:
         # Create workflow
         workflow = StateGraph(AgentState)
 
-        # Add analyst nodes to the graph
-        for analyst_type, node in analyst_nodes.items():
-            workflow.add_node(f"{analyst_type.capitalize()} Analyst", node)
-            workflow.add_node(
-                f"Msg Clear {analyst_type.capitalize()}", delete_nodes[analyst_type]
-            )
-            workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
+        # Note: Individual analyst nodes are now executed in parallel within the Parallel Analysis node
 
         # Add other nodes
         workflow.add_node("Bull Researcher", bull_researcher_node)
@@ -129,31 +122,13 @@ class GraphSetup:
         workflow.add_node("Safe Analyst", safe_analyst)
         workflow.add_node("Risk Judge", risk_manager_node)
 
-        # Define edges
-        # Start with the first analyst
-        first_analyst = selected_analysts[0]
-        workflow.add_edge(START, f"{first_analyst.capitalize()} Analyst")
-
-        # Connect analysts in sequence
-        for i, analyst_type in enumerate(selected_analysts):
-            current_analyst = f"{analyst_type.capitalize()} Analyst"
-            current_tools = f"tools_{analyst_type}"
-            current_clear = f"Msg Clear {analyst_type.capitalize()}"
-
-            # Add conditional edges for current analyst
-            workflow.add_conditional_edges(
-                current_analyst,
-                getattr(self.conditional_logic, f"should_continue_{analyst_type}"),
-                [current_tools, current_clear],
-            )
-            workflow.add_edge(current_tools, current_analyst)
-
-            # Connect to next analyst or to Bull Researcher if this is the last analyst
-            if i < len(selected_analysts) - 1:
-                next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
-                workflow.add_edge(current_clear, next_analyst)
-            else:
-                workflow.add_edge(current_clear, "Bull Researcher")
+        # Create parallel analyst execution node
+        parallel_analysis_node = self._create_parallel_analyst_node(analyst_nodes, selected_analysts)
+        workflow.add_node("Parallel Analysis", parallel_analysis_node)
+        
+        # Define edges for parallel execution
+        workflow.add_edge(START, "Parallel Analysis")
+        workflow.add_edge("Parallel Analysis", "Bull Researcher")
 
         # Add remaining edges
         workflow.add_conditional_edges(
@@ -203,3 +178,47 @@ class GraphSetup:
 
         # Compile and return
         return workflow.compile()
+
+    def _create_parallel_analyst_node(self, analyst_nodes, selected_analysts):
+        """Create a node that executes all analysts in parallel."""
+        import asyncio
+        import concurrent.futures
+        
+        def parallel_analysis(state):
+            """Execute all analysts in parallel using ThreadPoolExecutor."""
+            
+            def run_analyst(analyst_type, analyst_node):
+                """Run a single analyst and return the result."""
+                try:
+                    # Create a copy of state for this analyst
+                    analyst_state = state.copy()
+                    result = analyst_node(analyst_state)
+                    return analyst_type, result
+                except Exception as e:
+                    print(f"Error in {analyst_type} analyst: {e}")
+                    return analyst_type, {f"{analyst_type}_report": f"分析过程中出现错误: {str(e)}"}
+            
+            # Execute all analysts in parallel
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(selected_analysts)) as executor:
+                # Submit all analyst tasks
+                future_to_analyst = {
+                    executor.submit(run_analyst, analyst_type, analyst_nodes[analyst_type]): analyst_type
+                    for analyst_type in selected_analysts
+                }
+                
+                # Collect results
+                for future in concurrent.futures.as_completed(future_to_analyst):
+                    analyst_type, result = future.result()
+                    
+                    # Merge the result into the main state
+                    if isinstance(result, dict):
+                        for key, value in result.items():
+                            if key != "messages":  # Don't merge messages to avoid conflicts
+                                state[key] = value
+                    
+                    print(f"✅ {analyst_type.capitalize()} 分析师完成")
+            
+            print("🚀 所有分析师并行执行完成！")
+            return state
+        
+        return parallel_analysis

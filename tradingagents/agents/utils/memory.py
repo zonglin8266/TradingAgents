@@ -5,21 +5,58 @@ from openai import OpenAI
 
 class FinancialSituationMemory:
     def __init__(self, name, config):
-        if config["backend_url"] == "http://localhost:11434/v1":
-            self.embedding = "nomic-embed-text"
+        self.config = config
+        self.llm_provider = config.get("llm_provider", "openai").lower()
+        
+        # Initialize embedding client based on LLM provider
+        if self.llm_provider == "openai" or config["backend_url"] == "http://localhost:11434/v1":
+            self.client = OpenAI(base_url=config["backend_url"])
+            if config["backend_url"] == "http://localhost:11434/v1":
+                self.embedding = "nomic-embed-text"
+            else:
+                self.embedding = "text-embedding-3-small"
+        elif self.llm_provider == "google":
+            # For Google, we'll use a simple fallback embedding
+            self.client = None
+            self.embedding = None
+        elif self.llm_provider == "anthropic":
+            # For Anthropic, we'll use a simple fallback embedding
+            self.client = None 
+            self.embedding = None
         else:
+            # Default to OpenAI
+            self.client = OpenAI(base_url=config["backend_url"])
             self.embedding = "text-embedding-3-small"
-        self.client = OpenAI(base_url=config["backend_url"])
+            
         self.chroma_client = chromadb.Client(Settings(allow_reset=True))
-        self.situation_collection = self.chroma_client.create_collection(name=name)
+        # Use get_or_create_collection to avoid "already exists" error
+        self.situation_collection = self.chroma_client.get_or_create_collection(name=name)
 
     def get_embedding(self, text):
-        """Get OpenAI embedding for a text"""
+        """Get embedding for a text based on configured provider"""
         
-        response = self.client.embeddings.create(
-            model=self.embedding, input=text
-        )
-        return response.data[0].embedding
+        if self.client and self.embedding:
+            # Use OpenAI/compatible embedding
+            response = self.client.embeddings.create(
+                model=self.embedding, input=text
+            )
+            return response.data[0].embedding
+        else:
+            # Simple fallback: use text length and character distribution as a basic "embedding"
+            # This is a very simple approach for non-OpenAI providers
+            import hashlib
+            import numpy as np
+            
+            # Create a simple hash-based embedding
+            hash_obj = hashlib.md5(text.encode())
+            hash_bytes = hash_obj.digest()
+            
+            # Convert to a fixed-size vector (384 dimensions, common for many embedding models)
+            embedding = []
+            for i in range(384):
+                embedding.append((hash_bytes[i % len(hash_bytes)] - 128) / 128.0)
+            
+            return embedding
 
     def add_situations(self, situations_and_advice):
         """Add financial situations and their corresponding advice. Parameter is a list of tuples (situation, rec)"""
